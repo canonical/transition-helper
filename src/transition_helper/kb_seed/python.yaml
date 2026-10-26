@@ -1,0 +1,65 @@
+# Seed signatures shipped with transition-helper. Team-specific signatures belong
+# in the shared global KB repo or in <workspace>/kb/.
+- id: py-removed-asyncore-asynchat
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "No module named '(asyncore|asynchat|smtpd)'"
+  explanation: asyncore, asynchat and smtpd were removed from the stdlib in Python 3.12.
+  fix_recipe: >
+    Port to asyncio, or depend on the pyasyncore/pyasynchat compatibility
+    packages (python3-pyasyncore) where available.
+- id: py-removed-imp
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "No module named 'imp'$"
+    - "No module named 'imp'[^a-z_]"
+  explanation: The imp module was removed in Python 3.12.
+  fix_recipe: Replace imp usage with importlib (importlib.util.spec_from_file_location, importlib.reload).
+- id: py-removed-distutils
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "No module named 'distutils"
+  explanation: distutils was removed from the stdlib in Python 3.12.
+  fix_recipe: >
+    Build-depend on python3-setuptools (which provides a distutils shim) or port to
+    setuptools / sysconfig / packaging.
+- id: py-removed-dead-batteries-313
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "No module named '(cgi|cgitb|crypt|imghdr|mailcap|nntplib|pipes|sndhdr|spwd|sunau|telnetlib|uu|xdrlib|audioop|chunk|msilib|nis|ossaudiodev|aifc|lib2to3)'"
+  explanation: PEP 594 "dead batteries" modules were removed in Python 3.13.
+  fix_recipe: Replace with the suggested alternatives from PEP 594, or the legacy-cgi / standard-* PyPI backports if packaged.
+- id: py-setup-py-test
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: invalid command 'test'"
+  explanation: setuptools removed the `setup.py test` command.
+  fix_recipe: Run the tests with pytest (PYBUILD_TEST_PYTEST=1 / pybuild --test-pytest) or unittest discover.
+- id: py-pkg-resources-missing
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "No module named 'pkg_resources'"
+  explanation: pkg_resources is deprecated and no longer pulled in implicitly.
+  fix_recipe: Port to importlib.metadata / importlib.resources, or add an explicit python3-setuptools (build-)dependency.
+- id: py-invalid-escape-sequence
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "SyntaxWarning: invalid escape sequence"
+  explanation: Invalid escape sequences emit SyntaxWarning (3.12+); fatal under -Werror or in tests that check stderr.
+  fix_recipe: Use raw strings for regexes / escape the backslash.
+- id: autopkgtest-stderr-only
+  scope: global
+  applies_to: [autopkgtest]
+  patterns:
+    - "FAIL stderr: "
+  explanation: >
+    The test passed but wrote to stderr and lacks `Restrictions: allow-stderr`.
+    New toolchains frequently add deprecation warnings that trigger this.
+  fix_recipe: Fix the warning, or add allow-stderr to debian/tests/control if the output is benign.

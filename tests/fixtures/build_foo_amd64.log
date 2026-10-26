@@ -1,0 +1,69 @@
+sbuild (Debian sbuild) 0.85.0 (04 January 2023) on lcy02-amd64-001.buildd
++==============================================================================+
+| foo 1.0-1build1 (amd64)                      26 Oct 2026 10:00 |
++==============================================================================+
+Package: foo
+Version: 1.0-1build1
+Build Architecture: amd64
+I: NOTICE: Log filtering will replace 'build/foo-AbCdEf/foo-1.0' with '<<PKGBUILDDIR>>'
+dpkg-buildpackage -us -uc -mamd64 -B -rfakeroot
+dpkg-buildpackage: info: source package foo
+ debian/rules binary-arch
+dh binary-arch --buildsystem=pybuild
+   dh_auto_build -a -O--buildsystem=pybuild
+I: pybuild base:311: /usr/bin/python3.15 setup.py build
+running build
+running build_py
+copying src/foo/__init__.py -> /<<PKGBUILDDIR>>/.pybuild/cpython3_3.15/build/foo
+   dh_auto_test -a -O--buildsystem=pybuild
+I: pybuild base:311: cd /<<PKGBUILDDIR>>/.pybuild/cpython3_3.15/build; python3.15 -m pytest tests
+============================= test session starts ==============================
+platform linux -- Python 3.15.0, pytest-8.3.5
+collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+____________________ ERROR collecting tests/test_loader.py _____________________
+ImportError while importing test module '/<<PKGBUILDDIR>>/.pybuild/cpython3_3.15/build/tests/test_loader.py'.
+Traceback:
+/usr/lib/python3.15/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_loader.py:3: in <module>
+    from foo import loader
+foo/loader.py:1: in <module>
+    import imp
+E   ModuleNotFoundError: No module named 'imp'
+=========================== short test summary info ============================
+ERROR tests/test_loader.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.05s ===============================
+E: pybuild pybuild:389: test: plugin distutils failed with: exit code=2: cd /<<PKGBUILDDIR>>/.pybuild/cpython3_3.15/build; python3.15 -m pytest tests
+dh_auto_test: error: pybuild --test -i python{version} -p 3.15 returned exit code 13
+make: *** [debian/rules:6: binary-arch] Error 25
+dpkg-buildpackage: error: debian/rules binary-arch subprocess returned exit status 2
+--------------------------------------------------------------------------------
+Build finished at 2026-10-26T10:01:00Z
+
+Finished
+--------
+
++------------------------------------------------------------------------------+
+| Cleanup                                                                      |
++------------------------------------------------------------------------------+
+
+Purging /<<BUILDDIR>>
+Not removing build depends: as requested
++------------------------------------------------------------------------------+
+| Summary                                                                      |
++------------------------------------------------------------------------------+
+
+Build Architecture: amd64
+Build Type: any
+Build-Space: 1234
+Build-Time: 12
+Distribution: tenacious-proposed
+Fail-Stage: build
+Status: attempted
+Version: 1.0-1build1
+--------------------------------------------------------------------------------
+Finished at 2026-10-26T10:01:00Z
+Build needed 00:00:12, 1234k disk space

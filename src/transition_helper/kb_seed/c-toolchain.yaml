@@ -1,0 +1,53 @@
+- id: gcc-implicit-function-declaration
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: implicit declaration of function"
+    - "-Werror=implicit-function-declaration"
+  explanation: GCC 14+ makes implicit function declarations an error.
+  fix_recipe: Add the missing #include or prototype; for configure probes, regenerate with a newer autoconf.
+- id: gcc-incompatible-pointer-types
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: .*\\[-Wincompatible-pointer-types\\]"
+    - "error: passing argument .* from incompatible pointer type"
+  explanation: GCC 14+ makes incompatible pointer type conversions an error.
+  fix_recipe: Fix the types or add explicit casts.
+- id: gcc-int-conversion
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: .*\\[-Wint-conversion\\]"
+  explanation: GCC 14+ makes int<->pointer conversions without a cast an error.
+  fix_recipe: Fix the conversion (usually a missing prototype or wrong return type).
+- id: gcc-missing-include-cstdint
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: '(u?int(8|16|32|64)_t|uintptr_t|size_t)' (was not declared|does not name a type)"
+    - "note: '(u?int(8|16|32|64)_t|uintptr_t)' is defined in header '<cstdint>'"
+  explanation: Newer libstdc++ no longer includes <cstdint> transitively.
+  fix_recipe: Add '#include <cstdint>' to the affected headers.
+- id: c23-bool-keyword
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: (cannot use keyword 'false' as enumeration constant|'bool' cannot be defined via 'typedef'|two or more data types in declaration specifiers.*bool)"
+    - "error: expected identifier before '(true|false)'"
+  explanation: GCC 15 defaults to C23, where bool/true/false are keywords.
+  fix_recipe: Drop the local bool definitions, or build with -std=gnu17 as a stopgap.
+- id: c23-empty-parameter-list
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "error: too many arguments to function '[^']+'; expected 0"
+  explanation: In C23 `void f()` means no parameters, so old-style declarations break.
+  fix_recipe: Add full prototypes, or build with -std=gnu17 as a stopgap.
+- id: cmake-minimum-version
+  scope: global
+  applies_to: [build]
+  patterns:
+    - "Compatibility with CMake < 3\\.5 has been removed"
+  explanation: CMake 4 removed compatibility with cmake_minimum_required < 3.5.
+  fix_recipe: Bump cmake_minimum_required, or pass -DCMAKE_POLICY_VERSION_MINIMUM=3.5 as a stopgap.

@@ -1,0 +1,23 @@
+- id: infra-no-space-left
+  scope: global
+  applies_to: [build, autopkgtest]
+  patterns:
+    - "No space left on device"
+  explanation: The builder or testbed ran out of disk space.
+  fix_recipe: Usually infra; retry. If it persists, the package may need a big testbed / build on a larger builder.
+- id: infra-testbed-failure
+  scope: global
+  applies_to: [autopkgtest]
+  patterns:
+    - "autopkgtest \\[[0-9:]+\\]: ERROR: testbed failure"
+    - "<VirtSubproc>: failure"
+    - "ERROR: erroneous package: .*(Hash Sum mismatch|Failed to fetch)"
+  explanation: The autopkgtest testbed failed (not the test itself).
+  fix_recipe: Retry the test.
+- id: infra-test-timeout
+  scope: global
+  applies_to: [autopkgtest]
+  patterns:
+    - "autopkgtest \\[[0-9:]+\\]: ERROR: timed out on command"
+  explanation: The test hit the autopkgtest time limit.
+  fix_recipe: Retry once; if it times out repeatedly, look for a hang or request the package on the long-tests list.
