@@ -35,7 +35,7 @@ def run_checks(cfg: UserConfig | None, cfg_error: str | None, ping_llm: bool = T
         return out
     assert cfg is not None
     out.append(Check("user config", True, str(cfg.path) if cfg.path else
-                     f"{config_path()} missing; using defaults"))
+                     f"{config_path()} missing; using defaults (run 'th config init')"))
     try:
         name, email = cfg.maintainer()
         out.append(Check("maintainer", True, f"{name} <{email}>"))

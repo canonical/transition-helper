@@ -12,9 +12,9 @@ from .progress import Progress
 from .workspace import WorkspaceError, find_workspace
 
 
-def _config():
+def _config(args):
     try:
-        return load_config()
+        return load_config(overrides=args.overrides)
     except ConfigError as e:
         raise SystemExit(f"error: {e}")
 
@@ -26,7 +26,7 @@ def _services(args, quiet: bool = False, refresh: bool = False):
         ws = find_workspace()
     except WorkspaceError as e:
         raise SystemExit(f"error: {e}")
-    return make_services(ws, _config(), Progress(quiet=quiet), refresh=refresh)
+    return make_services(ws, _config(args), Progress(quiet=quiet), refresh=refresh)
 
 
 def _report_dir(path: str) -> Path:
@@ -43,7 +43,7 @@ def cmd_init(args) -> int:
     from .init_wizard import run_wizard
     from .lp import LaunchpadClient
 
-    cfg = _config()
+    cfg = _config(args)
     root = Path.cwd()
     lp = LaunchpadClient(root / ".cache", credentials_file=cfg.lp_credentials_file)
     try:
@@ -52,6 +52,9 @@ def cmd_init(args) -> int:
         print(f"error: {e or 'aborted'}", file=sys.stderr)
         return 1
     print(f"workspace ready: {ws.root}")
+    if not cfg.path:
+        print("note: no user config yet; run 'th config init' to set up the LLM and your "
+              "maintainer identity", file=sys.stderr)
     return 0
 
 
@@ -60,7 +63,7 @@ def cmd_doctor(args) -> int:
 
     cfg, err = None, None
     try:
-        cfg = load_config()
+        cfg = load_config(overrides=args.overrides)
     except ConfigError as e:
         err = str(e)
     if args.example_config:
@@ -111,16 +114,94 @@ def cmd_learn(args) -> int:
     except WorkspaceError as e:
         raise SystemExit(f"error: {e}")
     try:
-        dest = learn(ws, _config(), _report_dir(args.report_dir), global_kb=args.global_kb)
+        dest = learn(ws, _config(args), _report_dir(args.report_dir), global_kb=args.global_kb)
     except LearnError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     return 0 if dest else 1
 
 
+def _fmt(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def cmd_config(args) -> int:
+    from . import config as c
+
+    path = config_path()
+    action = args.action
+    try:
+        if action == "path":
+            print(path)
+        elif action == "show":
+            cfg = _config(args)
+            note = "" if cfg.path else " (missing; defaults shown)"
+            if args.overrides:
+                note += " (with -c overrides)"
+            print(f"# {path}{note}")
+            print(c.dump_yaml(c.effective_dict(cfg)), end="")
+        elif action == "get":
+            cfg = _config(args)
+            if args.key in c.SECTIONS:
+                print(c.dump_yaml(c.effective_dict(cfg)[args.key]), end="")
+                return 0
+            c.key_spec(args.key)
+            value = c.effective_value(cfg, args.key)
+            if value is None or value == "":
+                return 1
+            print(_fmt(value))
+        elif action == "set":
+            value = c.coerce(args.key, args.value)
+            _, backup = c.update_config(path, lambda d: c.set_raw(d, args.key, value))
+            print(f"{args.key} = {_fmt(value)}  ({path})")
+            if backup:
+                print(f"warning: comments are not preserved by 'th config set'; previous file "
+                      f"saved as {backup} (use 'th config edit' to keep comments)", file=sys.stderr)
+        elif action == "unset":
+            removed, backup = c.update_config(path, lambda d: c.unset_raw(d, args.key))
+            if not removed:
+                print(f"{args.key} is not set in {path}", file=sys.stderr)
+                return 1
+            print(f"{args.key} unset  ({path})")
+            if backup:
+                print(f"warning: comments are not preserved by 'th config unset'; previous file "
+                      f"saved as {backup}", file=sys.stderr)
+        elif action in ("init", "wizard"):
+            from .config_wizard import run_config_wizard
+
+            try:
+                run_config_wizard(path)
+            except EOFError:
+                print("\naborted; not saved", file=sys.stderr)
+                return 1
+        elif action == "edit":
+            from .editor import EditorError, edit
+
+            try:
+                c.edit_config(path, edit)
+            except EditorError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+        elif action == "keys":
+            defaults = c.UserConfig()
+            width = max(map(len, c.KEYS))
+            for key, spec in c.KEYS.items():
+                default = c.effective_value(defaults, key)
+                shown = "unset" if default in (None, "") else _fmt(default)
+                print(f"{key:<{width}}  {spec.kind:<4}  {spec.help} [default: {shown}]")
+    except ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="th", description="AI-assisted triage of packages stuck in a transition")
     p.add_argument("--version", action="version", version=f"th {__version__}")
+    p.add_argument("-c", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="override a user config key for this run (repeatable; KEY= resets it)")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("init", help="create a transition workspace in the current (empty) directory")
@@ -130,6 +211,24 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-ping", action="store_true", help="do not send a test request to the LLM")
     s.add_argument("--example-config", action="store_true", help="print an example user config")
     s.set_defaults(func=cmd_doctor)
+
+    s = sub.add_parser("config", help="show or change the user config",
+                       description=f"Show or change the user config ({config_path()}).")
+    csub = s.add_subparsers(dest="action", required=True)
+    csub.add_parser("init", aliases=["wizard"],
+                    help="interactively create or update the whole config")
+    csub.add_parser("path", help="print the config file's path")
+    csub.add_parser("show", help="print the effective config (file + defaults + -c)")
+    c = csub.add_parser("get", help="print one key's effective value (exit 1 if unset)")
+    c.add_argument("key", help="dotted key, e.g. llm.model, or a section: llm, budgets")
+    c = csub.add_parser("set", help="set a key in the config file")
+    c.add_argument("key", help="dotted key, e.g. llm.model (see 'th config keys')")
+    c.add_argument("value")
+    c = csub.add_parser("unset", help="remove a key from the config file (back to its default)")
+    c.add_argument("key")
+    csub.add_parser("edit", help="open the config file in $VISUAL/$EDITOR and validate it")
+    csub.add_parser("keys", help="list the config keys, their types and defaults")
+    s.set_defaults(func=cmd_config)
 
     s = sub.add_parser("triage", help="work out why a source package is stuck")
     s.add_argument("srcpkg")

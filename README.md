@@ -57,6 +57,49 @@ The LLM backend is provider-agnostic. LiteLLM sits behind a thin `LLMClient` int
 Without a model configured, everything except the AI analysis still works
 (`--no-llm` is implied).
 
+The easiest way to create it is the wizard, which walks through every setting:
+
+```sh
+th config init
+```
+
+It asks whether to use an LLM, then for the model, the API key's env var (guessed from the
+provider prefix, e.g. `openai/…` → `OPENAI_API_KEY`), an optional endpoint, budgets and
+private-data handling. It can send a test request to check that the model works. Then it
+asks for your maintainer identity (prefilled from `$DEBFULLNAME`/`$DEBEMAIL`), Launchpad
+credentials and the global KB. It shows the resulting file and asks before writing.
+Re-running it updates an existing config: each current value is the default (Enter keeps
+it, `-` clears it), and the previous file is saved as `config.yaml.bak`. The file it writes
+is commented with each key's meaning.
+
+To change single keys use `th config` (keys are dotted, like `llm.model`; `th config keys`
+lists them all with their types and defaults):
+
+```sh
+th config set llm.model anthropic/claude-opus-5-5
+th config set llm.api_key_env ANTHROPIC_API_KEY
+th config set budgets.max_iterations 30
+th config get llm.model        # effective value; exit 1 if unset
+th config get llm              # a whole section
+th config unset llm.base_url   # back to the default
+th config show                 # effective config: file + defaults (+ -c overrides)
+th config edit                 # $VISUAL/$EDITOR, validated before saving; keeps comments
+th config path
+```
+
+Values are type-checked and unknown keys are rejected (with a "did you mean"), so nothing
+invalid is ever written. `set`/`unset` rewrite the file with PyYAML, which drops comments;
+when the file had any, the previous version is saved as `config.yaml.bak` first. Use
+`th config edit` to keep them.
+
+To override a key for a single run without touching the file, use the global `-c` option
+(repeatable; `KEY=` resets a key to its default):
+
+```sh
+th -c llm.model=openai/gpt-5 -c budgets.max_tokens=200000 triage foo
+th -c llm.model= triage foo    # as if no model were configured
+```
+
 ## Workspace
 
 Run `th init` in an empty directory, one per transition. The wizard asks for every field
@@ -94,8 +137,13 @@ nearest `transition.yaml`, like git does.
 ## Commands
 
 ```
+th [-c KEY=VALUE ...] <command>             # -c: per-run user config override
 th init
 th doctor [--no-ping]                       # tools, LP access, LLM ping, workspace, KB
+th config init                              # wizard for the whole user config
+th config path|show|keys|edit
+th config get|unset <key>
+th config set <key> <value>
 th triage <srcpkg> [--arch A] [--interactive] [--follow-blockers]
                    [--no-llm] [--llm] [--refresh] [--quiet]
 th followup <report-dir>

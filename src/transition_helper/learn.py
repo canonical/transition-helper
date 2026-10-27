@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import re
-import shlex
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Callable
 
 import yaml
 
 from .config import UserConfig
+from .editor import EditorError, edit
 from .kb import KB, make_signature, validate_signature
 from .logs import LogError, LogStore, normalise
 from .report import load_report
@@ -69,20 +66,6 @@ def prefill(report: dict, scope: str) -> dict:
     }
 
 
-def edit(text: str, editor: str | None = None) -> str:
-    editor = editor or os.environ.get("VISUAL") or os.environ.get("EDITOR") or "editor"
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
-        f.write(text)
-        path = f.name
-    try:
-        subprocess.run([*shlex.split(editor), path], check=True)
-        return Path(path).read_text()
-    except (OSError, subprocess.CalledProcessError) as e:
-        raise LearnError(f"editor {editor!r} failed: {e}") from e
-    finally:
-        os.unlink(path)
-
-
 def rematch(sig_data: dict, report: dict, store: LogStore) -> list[str]:
     sig = make_signature(sig_data, "<edited>")
     kb = KB([sig])
@@ -116,7 +99,10 @@ def learn(ws: Workspace, cfg: UserConfig, report_dir: Path, global_kb: bool = Fa
     text = HEADER.format(report=report_dir) + yaml.safe_dump(prefill(report, scope),
                                                              sort_keys=False, width=100)
     while True:
-        text = edit(text, editor)
+        try:
+            text = edit(text, editor)
+        except EditorError as e:
+            raise LearnError(str(e)) from e
         body = "\n".join(line for line in text.splitlines() if not line.startswith("#")).strip()
         if not body:
             out("aborted (empty signature)")
