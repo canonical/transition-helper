@@ -152,6 +152,8 @@ def run_wizard(root: Path, cfg: UserConfig, lp: LPClient, http: HTTP, progress: 
             except LPError as e:
                 out(f"  {e}")
     relevant = a.items("Relevant binaries (used as hints)")
+    watch = a.items(f"Other sources whose migration the transition needs, besides {toolchain} "
+                    "(triage reports packages blocking them)", [])
     ignored = a.items("Arches to ignore by default", [])
     tags = a.items("LP bug tags", [name])
     if private and not cfg.allow_private_data:
@@ -161,7 +163,7 @@ def run_wizard(root: Path, cfg: UserConfig, lp: LPClient, http: HTTP, progress: 
 
     t = Transition(name=name, series=series, toolchain_source=toolchain, old_version=old_version,
                    new_version=new_version, build_location=location, ppa=ppa,
-                   relevant_binaries=relevant, ignored_arches=ignored, lp_bug_tags=tags, docs=[])
+                   relevant_binaries=relevant, watch_sources=watch, ignored_arches=ignored, lp_bug_tags=tags, docs=[])
     ws = create_workspace(root, t)
     out(f"created {root / TRANSITION_FILE}")
 

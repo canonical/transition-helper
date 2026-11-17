@@ -21,6 +21,7 @@ def test_wizard(tmp_path, monkeypatch):
         "3.14", "3.15",
         "ppa", "not-a-ppa", "~team/ubuntu/py315",
         "python3-all-dev, dh-python",
+        "python3.15",
         "riscv64",
         "",                     # tags -> [name]
         "https://example.com/porting.html",
@@ -37,6 +38,7 @@ def test_wizard(tmp_path, monkeypatch):
     assert (t.name, t.series, t.toolchain_source, t.build_location, t.ppa) == (
         "py315", "tenacious", "python3-defaults", "ppa", "~team/ubuntu/py315")
     assert t.relevant_binaries == ["python3-all-dev", "dh-python"] and t.ignored_arches == ["riscv64"]
+    assert t.watch_sources == ["python3.15"]
     assert t.lp_bug_tags == ["py315"]
     assert any("WARNING" in o and "private" in o for o in out)
     assert any("could not fetch the toolchain changelog" in o for o in out)

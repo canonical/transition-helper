@@ -43,6 +43,7 @@ def build_report(ws: Workspace, data) -> dict:
         "classification": cls.to_dict(),
         "excuse": data.excuse,
         "blockers": data.chain.to_dict() if data.chain else None,
+        "watch": (data.watch.to_dict() | {"via_watched": data.via_watched}) if data.watch else None,
         "evidence": {
             "logs": [ev.to_dict() for ev in data.logs],
             "groups": [g.to_dict() for g in data.groups],
@@ -78,6 +79,8 @@ def describe_deterministic(report: dict) -> str:
                      + (" …" if len(tests) > 8 else ""))
     if report.get("blockers") and report["blockers"].get("roots"):
         parts.append("blocked by " + ", ".join(report["blockers"]["roots"]))
+    if (report.get("watch") or {}).get("blocked"):
+        parts.append("blocks the migration of " + ", ".join(report["watch"]["blocked"]))
     if cls["uninstallable"]:
         parts.append("uninstallable: " + "; ".join(cls["uninstallable"][:3]))
     if report.get("kb_matches"):
@@ -125,6 +128,7 @@ def compute_summary(report: dict) -> dict:
         "confidence": fr.get("confidence") or ("deterministic only" if not report["llm"].get("ran")
                                                else "n/a (no final report)"),
         "next_steps": steps,
+        "blocks": list((report.get("watch") or {}).get("blocked") or []),
     }
 
 
@@ -246,6 +250,25 @@ def render_markdown(report: dict) -> str:
         L.append("Uninstallable:")
         L.extend(f"- {u}" for u in cls["uninstallable"][:30])
     L.append("")
+
+    w = report.get("watch")
+    if w and w.get("blocks"):
+        L.append("## Blocks migration of " + ", ".join(w["blocked"]))
+        L.append("")
+        if w.get("via_watched"):
+            L.append(f"{s['package']} has no upload of its own pending; the classification above "
+                     "comes from these excuse(s).")
+        else:
+            L.append(f"Found in the excuse(s) of {', '.join(w['blocked'])}, in addition to "
+                     f"{s['package']}'s own state above (not analysed further).")
+        L.append("")
+        for blk in w["blocks"][:40]:
+            L.append(f"- **{blk['watched']}** {blk.get('watched_version') or ''}: {_cell(blk['detail'])}")
+        if not w.get("via_watched"):
+            for ft in w.get("failing_tests", [])[:20]:
+                if ft.get("log_url"):
+                    L.append(f"  - {ft['test_pkg']}/{ft['arch']}: [log.gz]({ft['log_url']})")
+        L.append("")
 
     if report.get("blockers"):
         b = report["blockers"]
@@ -433,7 +456,7 @@ def write_report(ws: Workspace, data, report_dir: Path, revision: int = 1) -> di
     write_excerpts(report_dir, data)
     (report_dir / "evidence" / "bundle.json").write_text(json.dumps({
         "locate": report["locate"], "classification": report["classification"],
-        "excuse": report["excuse"], "blockers": report["blockers"],
+        "excuse": report["excuse"], "blockers": report["blockers"], "watch": report["watch"],
         "evidence": report["evidence"], "kb_matches": report["kb_matches"],
     }, indent=1, default=str))
     write_files(report_dir, report)
@@ -472,6 +495,8 @@ def terminal_summary(report: dict, report_dir: Path) -> str:
          f"root cause     : {s['root_cause']}",
          f"transition     : {_yn(s['is_transition_related'])}",
          f"confidence     : {s['confidence']}"]
+    if s.get("blocks"):
+        L.append(f"BLOCKS         : {', '.join(s['blocks'])}")
     if s["fix_targets"]:
         L.append("FIX TARGET(S)  :")
         for f in s["fix_targets"]:

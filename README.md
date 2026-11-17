@@ -126,6 +126,7 @@ new_version: "3.15"
 build_location: ppa               # ppa | archive
 ppa: ~owner/ubuntu/name           # only if build_location == ppa
 relevant_binaries: [python3-all-dev, python3-dev, dh-python]
+watch_sources: [python3.15]       # optional; toolchain_source is always watched
 ignored_arches: [riscv64]         # skipped unless --arch is given
 lp_bug_tags: [python3.15]
 docs: [toolchain_changelog.txt, porting_notes.md]
@@ -172,6 +173,20 @@ th learn <report-dir> [--global]
 
    Each failing test is recorded with its arch, triggers and log, and as either the
    package's own test or a reverse dependency's.
+   **Watched sources.** Triage also looks for the package inside the excuses of the
+   *watched* sources: `toolchain_source` plus `watch_sources`. These are the packages
+   whose migration the transition needs. It finds three kinds of block:
+   - the package's autopkgtest regressing (or still running) when triggered by a watched
+     source;
+   - `Impossible Depends` on one of the package's binaries;
+   - the package being in a watched source's `blocked-by`/`migrate-after`.
+
+   If the package has nothing of its own pending (`NOT_REBUILT`, `MIGRATED`), the
+   classification comes from those findings and the full pipeline runs on them: logs,
+   infra heuristics, the LLM, and patches to the package. So `th triage X` no longer
+   reports "nothing to do" when X's test is what keeps python3-defaults in -proposed.
+   Otherwise the package's own state comes first, and the blocks are listed in a
+   "Blocks migration of …" section, with the next steps and retry URLs.
 3. **Blocker chain.** Walks blocked-by, migrate-after and uninstallable binaries through
    the excuses, with a depth limit and cycle detection. It then suggests
    `th triage <root>`.

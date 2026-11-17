@@ -59,10 +59,12 @@ class FailingTest:
     retry_url: str | None
     run_id: str | None
     own: bool  # the triaged package's own test, as opposed to a reverse dependency's
+    via: str | None = None  # found in this watched source's excuse, not the package's own
 
     @property
     def kind(self) -> str:
-        return "own test" if self.own else "reverse-dependency test"
+        kind = "own test" if self.own else "reverse-dependency test"
+        return f"{kind}, blocking {self.via}" if self.via else kind
 
     def to_dict(self) -> dict:
         return dict(self.__dict__) | {"kind": self.kind}

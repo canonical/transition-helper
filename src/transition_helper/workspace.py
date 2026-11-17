@@ -32,6 +32,8 @@ class Transition:
     build_location: str = "archive"
     ppa: str | None = None
     relevant_binaries: list[str] = field(default_factory=list)
+    # other sources whose migration the transition needs (toolchain_source is always watched)
+    watch_sources: list[str] = field(default_factory=list)
     ignored_arches: list[str] = field(default_factory=list)
     lp_bug_tags: list[str] = field(default_factory=list)
     docs: list[str] = field(default_factory=list)
@@ -48,7 +50,7 @@ class Transition:
                 errors.append("ppa is required when build_location is ppa")
             elif not PPA_RE.match(self.ppa):
                 errors.append("ppa must look like ~owner/ubuntu/name")
-        for key in ("relevant_binaries", "ignored_arches", "lp_bug_tags", "docs"):
+        for key in ("relevant_binaries", "watch_sources", "ignored_arches", "lp_bug_tags", "docs"):
             value = getattr(self, key)
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 errors.append(f"{key} must be a list of strings")

@@ -25,6 +25,7 @@ from .patches import PatchSession
 from .progress import Progress
 from .sources import SourceManager
 from .versions import default_entry
+from .watch import WatchResult, classify_watched, find_blocks, watched_sources
 from .workspace import Workspace
 
 MAX_TEST_LOGS = 12
@@ -126,6 +127,9 @@ class TriageData:
     cls: Classification
     excuse: dict | None = None
     chain: BlockerChain | None = None
+    watch: WatchResult | None = None
+    # the classification comes from the watched excuses (nothing of the package's own pending)
+    via_watched: bool = False
     logs: list[LogEvidence] = field(default_factory=list)
     groups: list = field(default_factory=list)
     test_infra: list[dict] = field(default_factory=list)
@@ -165,18 +169,38 @@ def triage(svc: Services, pkg: str, opts: TriageOptions,
     excuse = excuses.get(pkg) if excuses else None
     ignored = set(t.ignored_arches)
     cls = classify(loc, excuse, ignored_arches=ignored, arch=opts.arch)
-    p.step("classify", f"{cls.phase} / {', '.join(cls.categories)}")
+
+    def bin_to_src(binary: str, arch: str) -> str | None:
+        return svc.lp.binary_source(binary, t.series, arch)
+
+    # 2b. does the package hold up the toolchain (or another watched source)?
+    watch = None
+    via_watched = False
+    watched = watched_sources(t, pkg)
+    if excuses and watched:
+        watch = find_blocks(excuses, pkg, watched, bin_to_src, pkg_versions=loc.versions,
+                            arch=opts.arch, ignored_arches=ignored)
+        for line in watch.summary():
+            p.step("watch", f"{pkg} {line}")
+        if not watch.blocks:
+            p.step("watch", f"{pkg} does not block {', '.join(w for w in watched if w not in watch.missing) or '-'}"
+                   + (f" ({', '.join(watch.missing)}: no excuse)" if watch.missing else ""))
+        # nothing of its own pending: what it breaks for the watched sources is the problem
+        if watch.blocks and loc.state in (State.NOT_REBUILT, State.MIGRATED):
+            cls = classify_watched(watch)
+            via_watched = True
+    p.step("classify", f"{cls.phase} / {', '.join(cls.categories)}"
+           + (f" (from the excuse of {', '.join(watch.blocked)})" if via_watched else ""))
     data = TriageData(pkg=pkg, opts=opts, loc=loc, cls=cls,
-                      excuse=excuse.to_dict() if excuse else None)
+                      excuse=excuse.to_dict() if excuse else None, watch=watch,
+                      via_watched=via_watched)
     data.excuses_generated = excuses.generated if excuses else None
     data.known_versions = {ft.test_pkg: ft.test_version for ft in cls.failing_tests
                            if ft.test_version}
 
     # 3. blocker chain
-    if {Category.DEPENDS_ON_UNMIGRATED, Category.UNINSTALLABLE} & set(cls.categories) and excuses:
-        def bin_to_src(binary: str, arch: str) -> str | None:
-            return svc.lp.binary_source(binary, t.series, arch)
-
+    if {Category.DEPENDS_ON_UNMIGRATED, Category.UNINSTALLABLE} & set(cls.categories) and excuses \
+            and not via_watched:
         data.chain = blocker_chain(excuses, pkg, bin_to_src)
         for line in data.chain.render():
             p.step("blockers", line)
@@ -252,10 +276,13 @@ def gather_evidence(svc: Services, data: TriageData) -> None:
     tested_arches: dict[str, set[str]] = {}
     for tr in (data.excuse or {}).get("tests", []):
         tested_arches.setdefault(tr["test_pkg"], set()).add(tr["arch"])
+    if data.via_watched and data.watch:
+        tested_arches.setdefault(data.pkg, set()).update(data.watch.tested_arches)
     failing_by_pkg: dict[str, set[str]] = {}
     for ft in cls.failing_tests:
         failing_by_pkg.setdefault(ft.test_pkg, set()).add(ft.arch)
-    has_unmigrated = bool(cls.blockers)
+    has_unmigrated = bool(cls.blockers) or bool(
+        data.via_watched and data.watch and data.watch.watched_has_unmigrated)
     for ft in cls.failing_tests[:MAX_TEST_LOGS]:
         ev = None
         if ft.log_url and ft.run_id:
@@ -351,10 +378,16 @@ def deterministic_next_steps(svc: Services, data: TriageData) -> list[str]:
     cats = set(cls.categories)
     if loc.state == State.NOT_FOUND:
         out.append(f"{data.pkg} is not published in {t.series}; check the name")
-    if loc.state == State.NOT_REBUILT:
+    blocks = data.watch.summary() if data.watch else []
+    if data.via_watched:
+        out.extend(f"{data.pkg} {line}: fix {data.pkg} (a new upload) to unblock it"
+                   for line in blocks)
+    elif loc.state == State.NOT_REBUILT:
         out.append("no rebuild has been uploaded for this transition; decide whether one is needed")
-    if loc.state == State.MIGRATED:
+    elif loc.state == State.MIGRATED:
         out.append("nothing to do: the package migrated")
+    else:
+        out.extend(f"also: {data.pkg} {line}" for line in blocks)
     if loc.state == State.BUILT_IN_PPA_NOT_IN_PROPOSED:
         out.append("all arches built in PPA; not in -proposed yet (copy is a human review step)")
     if loc.state == State.IN_PROPOSED_NO_EXCUSE_YET:
@@ -409,6 +442,11 @@ def build_commands(svc: Services, data: TriageData) -> list[str]:
         why = "; ".join(i.get("reasons", [])) or "retry"
         prefix = "" if i.get("flagged") else "# (not flagged as infra) "
         out.append(f"# retry {ft.test_pkg}/{ft.arch}: {why}\n{prefix}xdg-open '{url}'")
+    if data.watch and not data.via_watched:
+        for ft in data.watch.failing_tests:
+            if ft.retry_url:
+                out.append(f"# retry {ft.test_pkg}/{ft.arch} (regresses in the excuse of {ft.via})\n"
+                           f"# (not analysed) xdg-open '{ft.retry_url}'")
     if data.chain:
         for r in [r for r in data.chain.roots if r != data.pkg][:3]:
             out.append(f"# root blocker\nth triage {r}")
@@ -444,6 +482,14 @@ def bundle_summary(svc: Services, data: TriageData, max_chars: int = 30_000) -> 
     if data.chain:
         out.append("## Blocker chain")
         out += [f"- {line}" for line in data.chain.render()]
+    if data.watch and data.watch.blocks:
+        out.append(f"## {data.pkg} blocks the migration of watched source(s)")
+        if data.via_watched:
+            out.append(f"{data.pkg} has no upload of its own pending. The problems above come from "
+                       f"the excuse(s) of {', '.join(data.watch.blocked)}: {data.pkg} breaks "
+                       "with the new version(s) there, and that blocks the transition. "
+                       f"The fix is most likely a new upload of {data.pkg}.")
+        out += [f"- {b.render()}" for b in data.watch.blocks[:30]]
     kb_ids = data.kb_ids()
     if kb_ids:
         out.append("## Knowledge-base matches (hints, verify them)")
